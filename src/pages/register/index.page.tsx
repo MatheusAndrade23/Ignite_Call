@@ -1,18 +1,14 @@
-import { useEffect } from "react";
-
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Button, Heading, MultiStep, Text, TextInput } from "@ignite-ui/react";
+import { AxiosError } from "axios";
+import { useRouter } from "next/router";
 import { ArrowRight } from "phosphor-react";
-
+import { useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
-
-import { useRouter } from "next/router";
+import { api } from "../../lib/axios";
 
 import { Container, Form, FormError, Header } from "./styles";
-
-import { AxiosError } from "axios";
-import { api } from "@/lib/axios";
 
 const registerFormSchema = z.object({
   username: z
@@ -50,18 +46,18 @@ export default function Register() {
   async function handleRegister(data: RegisterFormData) {
     try {
       await api.post("/users", {
-        username: data.username,
         name: data.name,
+        username: data.username,
       });
 
       await router.push("/register/connect-calendar");
-    } catch (error) {
-      if (error instanceof AxiosError && error?.response?.data?.message) {
-        alert(error.response.data.message);
+    } catch (err) {
+      if (err instanceof AxiosError && err?.response?.data?.message) {
+        alert(err.response.data.message);
         return;
       }
 
-      console.log(error);
+      console.error(err);
     }
   }
 

@@ -1,106 +1,173 @@
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Button, Heading, MultiStep, Text, TextInput } from "@ignite-ui/react";
-import { AxiosError } from "axios";
-import { useRouter } from "next/router";
+import {
+  Button,
+  Checkbox,
+  Heading,
+  MultiStep,
+  Text,
+  TextInput,
+} from "@ignite-ui/react";
 import { ArrowRight } from "phosphor-react";
-import { useEffect } from "react";
-import { useForm } from "react-hook-form";
+import { Controller, useFieldArray, useForm } from "react-hook-form";
 import { z } from "zod";
 import { api } from "../../../lib/axios";
+import { convertTimeStringToMinutes } from "../../../utils/convert-time-string-to-minutes";
+import { getWeekDays } from "../../../utils/get-week-days";
+import { Container, Header } from "../styles";
 
-import { Container, Form, FormError, Header } from "./styles";
+import {
+  FormError,
+  IntervalBox,
+  IntervalContainer,
+  IntervalDay,
+  IntervalInputs,
+  IntervalItem,
+} from "./styles";
 
-const registerFormSchema = z.object({
-  username: z
-    .string()
-    .min(3, { message: "O usuário precisa ter pelo menos 3 letras." })
-    .regex(/^([a-z\\-]+)$/i, {
-      message: "O usuário pode ter apenas letras e hifens.",
+const timeIntervalsFormSchema = z.object({
+  intervals: z
+    .array(
+      z.object({
+        weekDay: z.number().min(0).max(6),
+        enabled: z.boolean(),
+        startTime: z.string(),
+        endTime: z.string(),
+      })
+    )
+    .length(7)
+    .transform((intervals) => intervals.filter((interval) => interval.enabled))
+    .refine((intervals) => intervals.length > 0, {
+      message: "Você precisa selecionar pelo menos um dia da semana",
     })
-    .transform((username) => username.toLowerCase()),
-  name: z
-    .string()
-    .min(3, { message: "O nome precisa ter pelo menos 3 letras." }),
+    .transform((intervals) => {
+      return intervals.map((interval) => {
+        return {
+          weekDay: interval.weekDay,
+          startTimeInMinutes: convertTimeStringToMinutes(interval.startTime),
+          endTimeInMinutes: convertTimeStringToMinutes(interval.endTime),
+        };
+      });
+    })
+    .refine(
+      (intervals) => {
+        return intervals.every(
+          (interval) =>
+            interval.endTimeInMinutes - 60 >= interval.startTimeInMinutes
+        );
+      },
+      {
+        message:
+          "O horário de término deve ser pelo menos 1h distante do início.",
+      }
+    ),
 });
 
-type RegisterFormData = z.infer<typeof registerFormSchema>;
+type TimeIntervalsFormInput = z.input<typeof timeIntervalsFormSchema>;
+type TimeIntervalsFormOutput = z.output<typeof timeIntervalsFormSchema>;
 
-export default function Register() {
+export default function TimeIntervals() {
   const {
     register,
     handleSubmit,
-    setValue,
-    formState: { errors, isSubmitting },
-  } = useForm<RegisterFormData>({
-    resolver: zodResolver(registerFormSchema),
+    control,
+    watch,
+    formState: { isSubmitting, errors },
+  } = useForm<TimeIntervalsFormInput>({
+    resolver: zodResolver(timeIntervalsFormSchema),
+    defaultValues: {
+      intervals: [
+        { weekDay: 0, enabled: false, startTime: "08:00", endTime: "18:00" },
+        { weekDay: 1, enabled: true, startTime: "08:00", endTime: "18:00" },
+        { weekDay: 2, enabled: true, startTime: "08:00", endTime: "18:00" },
+        { weekDay: 3, enabled: true, startTime: "08:00", endTime: "18:00" },
+        { weekDay: 4, enabled: true, startTime: "08:00", endTime: "18:00" },
+        { weekDay: 5, enabled: true, startTime: "08:00", endTime: "18:00" },
+        { weekDay: 6, enabled: false, startTime: "08:00", endTime: "18:00" },
+      ],
+    },
   });
 
-  const router = useRouter();
+  const weekDays = getWeekDays();
 
-  useEffect(() => {
-    if (router.query.username) {
-      setValue("username", String(router.query.username));
-    }
-  }, [router.query?.username, setValue]);
+  const { fields } = useFieldArray({
+    control,
+    name: "intervals",
+  });
 
-  async function handleRegister(data: RegisterFormData) {
-    try {
-      await api.post("/users", {
-        name: data.name,
-        username: data.username,
-      });
+  const intervals = watch("intervals");
 
-      await router.push("/register/connect-calendar");
-    } catch (err) {
-      if (err instanceof AxiosError && err?.response?.data?.message) {
-        alert(err.response.data.message);
-        return;
-      }
+  async function handleSetTimeIntervals(data: any) {
+    const { intervals } = data as TimeIntervalsFormOutput;
 
-      console.error(err);
-    }
+    await api.post("/users/time-intervals", {
+      intervals,
+    });
   }
 
   return (
     <Container>
       <Header>
-        <Heading as="strong">Bem-vindo ao Ignite Call!</Heading>
+        <Heading as="strong">Quase lá</Heading>
         <Text>
-          Precisamos de algumas informações para criar seu perfil! Ah, você pode
-          editar essas informações depois.
+          Defina o intervalo de horário que você está disponível em cada dia da
+          semana.
         </Text>
 
-        <MultiStep size={4} currentStep={1} />
+        <MultiStep size={4} currentStep={3} />
       </Header>
 
-      <Form as="form" onSubmit={handleSubmit(handleRegister)}>
-        <label>
-          <Text size="sm">Nome de usuário</Text>
-          <TextInput
-            prefix="ignite.com/"
-            placeholder="seu-usuário"
-            {...register("username")}
-          />
+      <IntervalBox as="form" onSubmit={handleSubmit(handleSetTimeIntervals)}>
+        <IntervalContainer>
+          {fields.map((field, index) => {
+            return (
+              <IntervalItem key={field.id}>
+                <IntervalDay>
+                  <Controller
+                    name={`intervals.${index}.enabled`}
+                    control={control}
+                    render={({ field }) => {
+                      return (
+                        <Checkbox
+                          onCheckedChange={(checked) =>
+                            field.onChange(checked === true)
+                          }
+                          checked={field.value}
+                        />
+                      );
+                    }}
+                  />
+                  <Text>{weekDays[field.weekDay]}</Text>
+                </IntervalDay>
+                <IntervalInputs>
+                  <TextInput
+                    size="sm"
+                    type="time"
+                    step={60}
+                    disabled={intervals[index].enabled === false}
+                    {...register(`intervals.${index}.startTime`)}
+                  />
+                  <TextInput
+                    size="sm"
+                    type="time"
+                    step={60}
+                    disabled={intervals[index].enabled === false}
+                    {...register(`intervals.${index}.endTime`)}
+                  />
+                </IntervalInputs>
+              </IntervalItem>
+            );
+          })}
+        </IntervalContainer>
 
-          {errors.username && (
-            <FormError size="sm">{errors.username.message}</FormError>
-          )}
-        </label>
-
-        <label>
-          <Text size="sm">Nome completo</Text>
-          <TextInput placeholder="Seu nome" {...register("name")} />
-
-          {errors.name && (
-            <FormError size="sm">{errors.name.message}</FormError>
-          )}
-        </label>
+        {errors.intervals && (
+          <FormError size="sm">{errors.intervals.message}</FormError>
+        )}
 
         <Button type="submit" disabled={isSubmitting}>
           Próximo passo
           <ArrowRight />
         </Button>
-      </Form>
+      </IntervalBox>
     </Container>
   );
 }
